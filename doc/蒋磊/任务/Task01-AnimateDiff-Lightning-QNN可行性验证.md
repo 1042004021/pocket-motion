@@ -39,12 +39,14 @@ AnimateDiff-Lightning QNN 可行性验证
 
 ### 2.5 缺失资料
 
-| 编号 | 缺失项 | 说明 | 影响范围 |
-|------|--------|------|----------|
-| M001 | AnimateDiff-Lightning 权重 | 需要锁定具体 checkpoint、分辨率适配和许可证 | 模型转换、算子覆盖 |
-| M002 | SD1.5 QNN 模型包 | 需要与现有 QNN 后端兼容的 SD1.5 资源 | UNet/VAE 链路 |
-| M003 | QAIRT/QNN SDK | 2.39.0.250925 转换器、HTP 工具和文档 | 模型转换与真机运行 |
-| M004 | 目标模型许可证 | motion module、SD1.5、Lightning 权重的分发/使用条款 | 后续能否交付和分发 |
+| 编号 | 缺失项 | 说明 | 影响范围 | 当前状态 |
+|------|--------|------|----------|----------|
+| M001 | AnimateDiff-Lightning 权重 | 已锁定 `animatediff_lightning_4step_diffusers.safetensors`，许可证 `creativeml-openrail-m` | 模型转换、算子覆盖 | 已解决 |
+| M002 | SD1.5 QNN 模型包 | 本地已有 3 个 `qnn2.28_8gen2` 包；尚未验证其与本次 motion module context 的混合使用 | UNet/VAE 链路 | 部分具备 |
+| M003 | QAIRT/QNN SDK | 本机没有 QAIRT 2.39；host 侧用 `onnxruntime-qnn` 内置 QNN 2.52 做了初步验证 | 模型转换与真机运行 | **阻塞** |
+| M004 | 目标模型许可证 | AnimateDiff-Lightning 为 `creativeml-openrail-m`；SD1.5 各模型许可证需逐包核对 | 后续能否交付和分发 | 部分解决 |
+| M005 | 完整 SD1.5 diffusers UNet | 目前只有预编译 QNN 包，没有可插入 motion module 的 UNet 源图 | 完整视频链路 | 缺失 |
+| M006 | 真机连接 | 本轮未连接手机，无法做 context 加载和耗时/内存/温度验证 | 真机验收 | 缺失 |
 
 ## 3. 技术方案（如有）
 
@@ -52,31 +54,33 @@ AnimateDiff-Lightning QNN 可行性验证
 
 1. 用 `device_probe.py` 固定设备与环境基线。
 2. 盘点 SD1.5 QNN 模型、AnimateDiff motion module 和 tokenizer/VAE 资源。
-3. 将 motion module 导出为 ONNX，固定 8 帧、256×256 的 shape。
-4. 使用 QNN Converter 生成 HTP 图，检查 temporal attention、3D/时序相关算子的覆盖。
-5. 先跑单段 8 帧推理，记录 NPU 是否全链路、耗时、峰值内存和温度。
-6. 输出可行性结论：继续 Android 宿主、换模型、或停止 NPU 视频路线。
+3. 将代表性 motion module 导出为 ONNX，固定 8 帧、256×256 对应的 32×32 / 16×16 / 8×8 latent shape。
+4. 使用 `onnxruntime-qnn` 的 QNN HTP prepare-only 模式，先验证 `soc_model=69`、`htp_arch=79`（SM8750/V79）下的算子覆盖和 host 数值一致性。
+5. 用 QAIRT 2.39 重新生成手机可加载的 context，在真机完成单模块 8 帧推理，记录耗时、峰值内存和温度。
+6. 再导出并编译完整 SD1.5 + AnimateDiff UNet；完整链路不通过，不进入 Android UI。
 
-关键原则：**算子不支持的必须记录，不静默回退 CPU/GPU。**
+关键原则：**算子不支持的必须记录，不静默回退 CPU/GPU；host 验证不等于真机验证。**
 
 ### 3.2 计划涉及文件清单
 
 | 文件路径 | 操作类型 | 说明 |
 |----------|----------|------|
-| `tools/model_inventory.py` | 新增 | 盘点模型文件、哈希和许可信息 |
-| `tools/qnn_op_probe.py` | 新增 | 调用 QNN 转换/分析并汇总算子覆盖 |
-| `tools/run_fixed_video.py` | 新增 | 固定 8 帧最小推理入口 |
-| `doc/验证/Task01-QNN算子覆盖与真机记录.md` | 新增 | 记录环境、命令、结果和阻塞点 |
-| `models/` | 本地目录 | 模型权重不入 Git |
+| `tools/model_inventory.py` | 已新增 | 盘点模型文件、哈希和许可证 |
+| `tools/export_motion_onnx.py` | 已新增 | 导出固定 8 帧 motion module ONNX |
+| `tools/qnn_context_probe.py` | 已新增 | 生成 QNN HTP context 并做 host 数值校验 |
+| `tools/qnn_op_probe.py` | 已新增 | 汇总 QNN 环境、ONNX 算子和 context 报告 |
+| `doc/验证/Task01-QNN算子覆盖与真机记录.md` | 已新增 | 记录环境、命令、结果和阻塞点 |
+| `tools/run_fixed_video.py` | 未新增 | 真机最小推理入口，等 QAIRT 2.39 后再做 |
+| `models/` | 本地目录 | 模型权重、ONNX、QNN 产物不入 Git |
 
 ## 4. 验收标准
 
-- [ ] 输出模型与许可证盘点表
-- [ ] 成功导出固定 8 帧、256×256 的 ONNX 图
-- [ ] 输出 QNN 算子覆盖报告，明确不支持项
-- [ ] 真机完成 8 帧输出，核心计算不依赖 CPU/GPU
-- [ ] 记录每段耗时、峰值内存、温度变化
-- [ ] 给出“继续/换模型/停止”的明确结论
+- [x] 输出模型与许可证盘点表
+- [x] 成功导出固定 8 帧、256×256 的 motion module ONNX 图
+- [x] 输出 QNN 算子覆盖报告，明确不支持项（host QNN 2.52 初步验证；未发现不支持项）
+- [ ] 真机完成 8 帧输出，核心计算不依赖 CPU/GPU（阻塞：QAIRT 2.39 + 真机连接）
+- [ ] 记录每段耗时、峰值内存、温度变化（阻塞）
+- [ ] 给出“继续/换模型/停止”的明确结论（当前为有条件继续）
 
 ## 5. 接口设计（如有）
 
@@ -107,13 +111,27 @@ AnimateDiff-Lightning QNN 可行性验证
 
 ### 9.1 最终实现方案
 
-未开始，待实现。
+当前为**阶段性方案**，不是最终通过方案：
+
+1. 从 `ByteDance/AnimateDiff-Lightning` 下载 4-step motion module，锁定 SHA-256 和许可证。
+2. 用 `diffusers.MotionAdapter` 加载权重，导出 3 个代表性 `AnimateDiffTransformer3D` 为固定 shape ONNX：
+   - 320 通道 / 32×32
+   - 640 通道 / 16×16
+   - 1280 通道 / 8×8
+3. 用 `onnxruntime-qnn` 的 QNN EP `enable_htp_prepare_only` 生成 `soc_model=69`、`htp_arch=79` 的 HTP context，并在 host QNN 后端回读校验。
+4. 3 个模块均编译为单个 EPContext 节点，host QNN 输出与 CPU ONNX 输出一致；未发现算子不支持项。
+5. 由于 host 使用 QNN 2.52、手机现有运行时为 QNN 2.39，当前 context 不能直接视为手机可加载；完整 SD1.5 UNet 也尚未导出。
 
 ### 9.2 实际代码改动
 
 | 类型 | 文件路径 | 关键位置 | 改动说明 |
 |------|----------|----------|----------|
-| 待定 | - | - | - |
+| 新增 | `tools/model_inventory.py` | `safetensors_header`、`zip_inventory` | 盘点模型、哈希、张量和 SD1.5 QNN 包 |
+| 新增 | `tools/export_motion_onnx.py` | `MotionModuleWrapper`、`export_one` | 导出固定 8 帧 ONNX，并做 CPU 数值校验 |
+| 新增 | `tools/qnn_context_probe.py` | `setup_qnn`、`compile_and_check` | 生成 QNN HTP context，回读并与 CPU 对比 |
+| 重写 | `tools/qnn_op_probe.py` | `host_qnn_ep_check`、`read_context_report` | 汇总 QNN 环境、ONNX 算子和 context 报告 |
+| 新增 | `doc/验证/Task01-QNN算子覆盖与真机记录.md` | 全文 | 记录结果、风险和下一步 |
+| 更新 | `tools/README.md`、`README.md`、`doc/项目说明.md`、`doc/蒋磊/进度/进度.md` | 状态/工具说明 | 同步当前进展 |
 
 ### 9.3 接口、数据与外部依赖影响
 
@@ -121,18 +139,28 @@ AnimateDiff-Lightning QNN 可行性验证
 |------|------|----------|
 | 接口 | 无 | 不涉及服务端接口 |
 | 数据 | 无 | 不涉及数据库 |
-| 外部依赖 | QNN SDK、模型权重 | 待准备 |
+| 外部依赖 | `onnxruntime-qnn==2.8.0`（QNN 2.52） | 仅用于 host 侧初步算子/context 验证 |
+| 外部依赖 | QAIRT 2.39.0.250925 | **仍需准备**；用于生成手机 QNN 2.39 可加载的 context |
+| 外部依赖 | SD1.5 diffusers UNet 权重 | **仍需准备**；用于导出完整 UNet + motion module |
+| 外部依赖 | 目标手机 | 本轮未连接，真机验证待执行 |
 
 ### 9.4 验证记录与已知风险
 
 | 项目 | 结果 | 说明 |
 |------|------|------|
-| 自动化测试 | 未执行 | 任务未开始 |
-| 构建与静态检查 | 未执行 | 任务未开始 |
-| 已知风险 | QNN 算子覆盖未知 | 这是本任务要回答的核心问题 |
+| ONNX checker | 通过 | 3 个固定 shape 图 |
+| CPU ONNX 与 PyTorch 对比 | 通过 | 最大绝对误差 ≤ 3.81e-06 |
+| QNN HTP context 生成 | 通过 | 3 个模块均生成 context，单个 EPContext 节点 |
+| QNN host 数值校验 | 通过 | 最大绝对误差 ≤ 7.29e-03，相关系数 ≥ 0.9999995 |
+| 真机 NPU 推理 | 未执行 | 手机未连接；QNN 版本不一致 |
+| 完整 SD1.5 + AnimateDiff | 未执行 | 只有 motion module，没有完整 UNetMotionModel |
+| 已知风险 1 | 高 | QNN 2.52 context 与手机 QNN 2.39 可能不兼容 |
+| 已知风险 2 | 高 | 完整 UNet 的算子覆盖、内存和耗时未知 |
+| 已知风险 3 | 中 | host 的 QNN 设备类型显示为 CPU，host 耗时不能代表手机 NPU |
 
 ## 10. 修改记录
 
 | 时间 | 修改内容 | 修改原因 | 确认人 |
 |------|----------|----------|--------|
 | 2026-11-17 | 创建 AnimateDiff QNN 可行性任务 | 用户确认 NPU-only 路线 | 用户 |
+| 2026-11-17 | 完成 motion module ONNX 导出和 host QNN V79 context 验证；记录 QNN 2.39/完整 UNet/真机阻塞 | 用户要求先跑 Task01，算子覆盖优先 | 用户 |
