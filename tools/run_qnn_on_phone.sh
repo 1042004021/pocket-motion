@@ -43,7 +43,7 @@ for module in "${MODULES[@]}"; do
       --backend '$REMOTE_DIR/lib/libQnnHtp.so' \
       --input_list '$REMOTE_DIR/models/$module/input_list.txt' \
       --output_dir '$output' \
-      --log_level info"
+      --log_level info" 2>&1 | tee "$LOCAL_DIR/results/$module.log"
   adb pull "$output" "$LOCAL_DIR/results/$module" >/dev/null
   echo "result: $LOCAL_DIR/results/$module"
 done
