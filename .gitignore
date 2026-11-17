@@ -1,0 +1,15 @@
+# 本项目为 NPU 视频生成 POC，模型和构建产物不入库
+*.onnx
+*.onnx.data
+*.bin
+*.so
+*.qnn
+*.dlc
+models/
+.venv/
+__pycache__/
+*.pyc
+build/
+dist/
+.idea/
+.DS_Store
