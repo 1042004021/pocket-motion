@@ -28,12 +28,13 @@ Task01 进行中，已完成：
 
 - AnimateDiff-Lightning 4-step motion module 下载、哈希和许可证盘点
 - 3 个代表性 motion module 的固定 8 帧 ONNX 导出
-- host QNN 2.52 / V79 context 生成与数值校验
+- QNN 2.52 预检和 QAIRT 2.39 V79 context 生成
+- 3 个 2.39 context 在 host `qnn-net-run` 上与 CPU ONNX 对齐
+- Android adb 测试包：`dist/qnn239-android/`
 
 仍阻塞：
 
-- 本机没有 QAIRT 2.39；host 生成的 QNN 2.52 context 不能直接当作手机可加载
-- 手机当前未连接，尚未做真机 8 帧推理
+- 手机当前未连接，尚未在手机 `createFromBinary` 加载 context
 - 完整 SD1.5 + AnimateDiff UNet 尚未导出和编译
 
 详细记录见 [Task01 验证记录](doc/验证/Task01-QNN算子覆盖与真机记录.md)。
@@ -70,8 +71,13 @@ python3 tools/device_probe.py
 # 导出固定 8 帧 ONNX
 .venv/bin/python tools/export_motion_onnx.py
 
-# host QNN context 生成与校验
+# host QNN context 生成与校验（2.52 预检）
 .venv/bin/python tools/qnn_context_probe.py
+
+# QAIRT 2.39 V79 context 与 Android 测试包
+docker build -t pocket-motion-qairt:2.39 -f tools/qairt/Dockerfile tools/qairt
+bash tools/build_qnn239_contexts.sh
+bash tools/prepare_android_qnn_kit.sh
 
 # 汇总 QNN/算子报告
 .venv/bin/python tools/qnn_op_probe.py

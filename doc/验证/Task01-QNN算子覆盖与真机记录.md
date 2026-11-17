@@ -8,13 +8,13 @@
 | 项目 | 结果 |
 |------|------|
 | AnimateDiff-Lightning motion module 固定 shape ONNX | 已导出 3 个代表性模块，覆盖 320/640/1280 通道 |
-| QNN 算子覆盖 | 代表性图在 host QNN HTP 上完整编译为单个 EPContext，未出现 CPU 子图 |
+| QNN 算子覆盖 | 2.52 与 2.39 均能在 host 编译；2.39 V79 context 已生成 |
 | QNN 数值一致性 | 3 个模块 QNN 输出与 CPU ONNX 输出 `allclose(atol=2e-2, rtol=2e-2)` |
-| 真机 NPU 运行 | **未完成**：本机无 QAIRT 2.39，手机当前未连接 |
-| 手机 QNN 运行时兼容性 | **未证明**：host 生成的是 QNN 2.52 context，手机现有库是 2.39 |
+| 真机 NPU 运行 | **未完成**：手机当前未连接；Android 测试包已准备好 |
+| 手机 QNN 运行时兼容性 | **待真机验证**：已用 QNN 2.39 重新生成 context，与手机库版本一致 |
 | 完整 SD1.5 + AnimateDiff UNet | **未导出**：目前只验证了 motion module，不是整条视频链路 |
 
-**当前判断**：motion module 的算子层面没有发现阻塞，可以继续；但还不能宣称“SD1.5 + AnimateDiff-Lightning 已在 NPU 上跑通”。下一步必须拿到 QAIRT 2.39，生成手机可加载的 context，并在真机完成 8 帧推理。
+**当前判断**：motion module 的算子层面没有发现阻塞，QNN 2.39 V79 context 也已在 host 加载验证；下一步只需手机端确认 context 可加载，然后进入完整 UNet。还不能宣称“SD1.5 + AnimateDiff-Lightning 已在 NPU 上跑通”。
 
 ## 2. 环境
 
@@ -29,6 +29,7 @@
 | onnxruntime-qnn | 2.8.0 |
 | onnxruntime-qnn 内置 QNN 版本 | 2.52.0 |
 | host HTP backend 接口 | 2.41.0（加载日志） |
+| QAIRT 2.39 | `2.39.0.250925`（Ubuntu 22.04 Docker 转换） |
 | 目标设备 | Xiaomi 24129PN74C |
 | 目标 SoC | SM8750 |
 | 目标 HTP 架构 | V79 |
@@ -136,17 +137,57 @@ ep.context_enable = 1
 
 注意：host 的 `ort.get_ep_devices()` 把 QNN 设备报成 CPU hardware type，这只是 x86 host emulation 的显示；host 运行耗时不能当作手机 NPU 性能。
 
-## 7. 兼容性风险（硬阻塞）
+### 6.1 QAIRT 2.39 复验
 
-### 7.1 QNN 版本不一致
+后续拿到了官方 QAIRT 2.39.0.250925，并用 Ubuntu 22.04 Docker 运行官方转换器，重新生成了与手机运行时同版本的 context。
+
+这一步发现并处理了两个 QNN 2.39 的限制：
+
+1. **Arch host 上直接运行转换器不可靠**：系统 `libc++`/`libunwind` ABI 不匹配时，Shape 推理会得到错误结果；改用 Ubuntu 22.04 容器后转换正常。
+2. **V79 HTP 不接受 rank-5 GroupNorm**：原始 ONNX 的 5D `InstanceNormalization` 会被转换器映射成 rank-5 `GroupNorm`，backend 报 `incorrect Rank 5`。`tools/patch_motion_groupnorm.py` 将它改写为等价的 `ReduceMean/Sub/Mul/ReduceMean/Add/Sqrt/Div`，不改变模型语义。
+
+QNN 2.39 V79 context 结果（host `qnn-net-run`，输入/输出按 QNN 的 NHWC 布局转换后与 CPU ONNX 对比）：
+
+| 模块 | context 大小 | max_abs_diff | mean_abs_diff | 相关系数 | allclose |
+|------|--------------|--------------|---------------|----------|----------|
+| 320 / 32×32 | 15.1 MiB | 5.20e-03 | 4.48e-04 | 0.99999983 | 是 |
+| 640 / 16×16 | 21.7 MiB | 7.43e-03 | 7.19e-04 | 0.99999966 | 是 |
+| 1280 / 8×8 | 70.8 MiB | 6.50e-03 | 9.79e-04 | 0.99999955 | 是 |
+
+这证明 QNN 2.39 的 V79 context 可以在同版本 host HTP 后端上加载并执行；**仍然不是手机实测**。
+
+### 6.2 Android 测试包
+
+已生成：
+
+```text
+dist/qnn239-android/
+├── qnn-net-run                 # QAIRT 2.39 aarch64-android
+├── lib/                        # libQnnHtp.so、V79 stub、QnnSystem
+├── skel/                       # V79 skel / DSP 库
+├── models/                     # 3 个 context + NHWC input raw
+└── run_on_phone.sh             # adb 推送 + 执行
+```
+
+明天手机连上后：
+
+```bash
+bash dist/qnn239-android/run_on_phone.sh
+```
+
+脚本会推送 kit 到 `/data/local/tmp/pocket-motion-qnn`，逐个加载 context、执行 8 帧输入，并把输出拉回 `dist/qnn239-android/results/`。
+
+## 7. 剩余风险与阻塞
+
+### 7.1 QNN 版本：已对齐
 
 | 位置 | 版本 |
 |------|------|
-| host `onnxruntime-qnn` 内置 QNN | 2.52.0 |
-| 生成的 context `ep_sdk_version` | `v2.52.0.261104115025` |
+| 生成 context 的 QAIRT | 2.39.0.250925 |
+| host `qnn-net-run` / HTP backend | 2.39.0.250925 |
 | 手机现有 QNN 库 | `AISW_VERSION 2.39.0` / `v2.39.0.250925215840_163802` |
 
-QNN 有 `QNN_CONTEXT_ERROR_BINARY_VERSION` 这类错误；不能假设 2.52 生成的 context 能被 2.39 运行时加载。必须先取得 **QAIRT 2.39.0.250925**，用同一版本重新生成 context，再做真机验证。
+2.39 context 已在 host HTP 后端加载并执行通过；剩余风险是**手机端 `createFromBinary` 是否接受该 context**，必须真机确认，不能仅凭 host 推断。
 
 ### 7.2 只有 motion module，没有完整 UNet
 
@@ -162,15 +203,14 @@ QNN 有 `QNN_CONTEXT_ERROR_BINARY_VERSION` 这类错误；不能假设 2.52 生�
 
 ### 7.3 真机状态
 
-本轮没有连接手机，也没有运行真机推理；因此没有耗时、峰值内存、温度数据。
+本轮没有连接手机，也没有运行真机推理；因此没有耗时、峰值内存、温度数据。Android 测试包已准备好，等手机连接后执行。
 
 ## 8. 下一步
 
-1. 取得 QAIRT 2.39.0.250925，安装 `qnn-onnx-converter`、`qnn-context-binary-generator` 和 V79 运行时。
-2. 用 2.39 重新生成 3 个 motion module context，确认手机能 `createFromBinary`。
-3. 连接手机，做一个最小 native runner，只跑单模块 8 帧推理，记录耗时/内存/温度。
-4. 下载 SD1.5 diffusers 权重，导出完整 `UNetMotionModel`，重复同样的 QNN 编译和真机验证。
-5. 只有完整 UNet 的算子覆盖、真机耗时和内存都可接受，才进入 Android UI。
+1. 连接手机并运行 `dist/qnn239-android/run_on_phone.sh`，确认 3 个 context 都能加载并执行。
+2. 记录手机端初始化、单次推理、峰值内存和温度。
+3. 下载 SD1.5 diffusers 权重，导出完整 `UNetMotionModel`，重复同样的 QNN 编译和真机验证。
+4. 只有完整 UNet 的算子覆盖、真机耗时和内存都可接受，才进入 Android UI。
 
 ## 9. 证据文件
 
@@ -178,19 +218,34 @@ QNN 有 `QNN_CONTEXT_ERROR_BINARY_VERSION` 这类错误；不能假设 2.52 生�
 
 ```text
 models/onnx/*.onnx
+models/onnx/*_qnn239.onnx
 models/onnx/export_manifest.json
-models/qnn/*/model.qnn
+models/qnn/*/model.qnn                  # 2.52 preliminary
 models/qnn/*/model_qnn.bin
 models/qnn/qnn_context_report.json
+models/qnn239/*/model_qnn.cpp           # 2.39 converted model
+models/qnn239/*/model_qnn.bin
+models/qnn239/*/context.bin.bin         # 2.39 V79 context
+models/qnn239/*/io/out/Result_0/out.raw # host QNN output
 models/qnn_op_report.json
 models/inventory.json
+dist/qnn239-android/                     # Android adb test kit
 ```
 
 复现命令：
 
 ```bash
+# 2.52 preliminary / op coverage
 .venv/bin/python tools/model_inventory.py
 .venv/bin/python tools/export_motion_onnx.py
 .venv/bin/python tools/qnn_context_probe.py
 .venv/bin/python tools/qnn_op_probe.py
+
+# 2.39 V79 contexts
+docker build -t pocket-motion-qairt:2.39 -f tools/qairt/Dockerfile tools/qairt
+bash tools/build_qnn239_contexts.sh
+
+# Android test kit
+bash tools/prepare_android_qnn_kit.sh
+bash dist/qnn239-android/run_on_phone.sh
 ```

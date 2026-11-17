@@ -83,6 +83,46 @@ htp_arch  = 79    # V79
 
 - `run_fixed_video.py`：256×256、8 帧、固定 shape 的完整最小推理入口
 
+## QAIRT 2.39 链路
+
+### qairt/Dockerfile
+
+Ubuntu 22.04 + Python 3.10 conversion dependencies。Arch host 的 `libc++`/`libunwind` ABI 与 QAIRT 2.39 转换器不兼容，必须用该容器。
+
+```bash
+docker build -t pocket-motion-qairt:2.39 -f tools/qairt/Dockerfile tools/qairt
+```
+
+### patch_motion_groupnorm.py
+
+QAIRT 2.39 会把 5D `InstanceNormalization` 映射成 rank-5 GroupNorm，V79 HTP 报 `incorrect Rank 5`。脚本把它改写为等价的 `ReduceMean/Sub/Mul/ReduceMean/Add/Sqrt/Div`，不改变权重和模型语义。
+
+### build_qnn239_contexts.sh
+
+```bash
+bash tools/build_qnn239_contexts.sh
+```
+
+生成 3 个 V79 context 到 `models/qnn239/`。
+
+### prepare_android_qnn_kit.sh
+
+```bash
+bash tools/prepare_android_qnn_kit.sh
+```
+
+生成 `dist/qnn239-android/`，包含 arm64 `qnn-net-run`、QNN 2.39 库、V79 skel、3 个 context 和 NHWC 输入。
+
+### run_qnn_on_phone.sh
+
+手机连接后执行：
+
+```bash
+bash dist/qnn239-android/run_on_phone.sh
+```
+
+脚本会推送并逐个执行 context，输出拉回 `dist/qnn239-android/results/`。
+
 ## 退出码
 
 - `0`：host 验证完成
