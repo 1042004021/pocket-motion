@@ -41,7 +41,7 @@
 
 ### 3.1 实现思路
 
-- 新项目独立于 Yedu 主项目，路径为 `yedu-video/`
+- 新项目独立于 现有 Android 项目，路径为 `pocket-motion/`
 - 使用 `doc/` 记录 PRD、Task、进度和验证
 - `tools/device_probe.py` 只使用 Python 标准库，检查 adb 设备、SoC/ABI/内存、Python 模块和 QNN 工具路径
 - 输出 JSON，便于后续验证记录引用
@@ -93,7 +93,7 @@
 
 ### 9.1 最终实现方案
 
-创建独立 `yedu-video` 项目，不修改 Yedu 主项目。初始化文档采用 `doc/需求`、`doc/蒋磊/任务`、`doc/蒋磊/进度`、`doc/验证` 结构。
+创建独立 `pocket-motion` 项目，不修改 现有 Android 项目。初始化文档采用 `doc/需求`、`doc/蒋磊/任务`、`doc/蒋磊/进度`、`doc/验证` 结构。
 `device_probe.py` 使用标准库调用 adb 和 `importlib.util.find_spec`，输出 JSON 报告，不做设备修改和模型下载。
 
 ### 9.2 实际代码改动
@@ -130,3 +130,4 @@
 | 时间 | 修改内容 | 修改原因 | 确认人 |
 |------|----------|----------|--------|
 | 2026-11-17 | 创建项目骨架、文档和设备探测脚本 | 用户要求新开 NPU 视频项目 | 用户 |
+| 2026-11-17 | 项目从 Yedu Video 重命名为 PocketMotion | 用户要求不要沿用 Yedu 命名 | 用户 |

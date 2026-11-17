@@ -1,4 +1,4 @@
-# Yedu Video NPU POC
+# PocketMotion
 
 独立的 NPU 视频生成可行性项目，目标是验证 **Snapdragon 8 Elite（SM8750）+ 12GB RAM** 能否把小型视频生成模型完整跑在高通 NPU 上。
 
@@ -55,5 +55,5 @@ python3 tools/device_probe.py
 
 ## 许可证边界
 
-本项目是独立 POC，不包含 Yedu 主项目代码。
+本项目是独立 POC，不包含 现有 Android 项目代码。
 后续若使用 AnimateDiff、SD1.5 或其他模型，需要分别核对模型权重和代码的许可证；local-dream 的 CC BY-NC 4.0 边界不能自动套用到新模型。

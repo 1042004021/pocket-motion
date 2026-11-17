@@ -19,7 +19,7 @@ AnimateDiff-Lightning QNN 可行性验证
 
 ### 2.2 任务描述
 
-验证 SD1.5 + AnimateDiff-Lightning 的 8 帧、256×256、4～6 步最小链路能否完整运行在高通 NPU 上。当前只做模型转换、QNN 算子覆盖和最小推理验证，不修改 Yedu App，不做 UI。
+验证 SD1.5 + AnimateDiff-Lightning 的 8 帧、256×256、4～6 步最小链路能否完整运行在高通 NPU 上。当前只做模型转换、QNN 算子覆盖和最小推理验证，不修改 现有 Android App，不做 UI。
 
 明确边界：
 
@@ -42,7 +42,7 @@ AnimateDiff-Lightning QNN 可行性验证
 | 编号 | 缺失项 | 说明 | 影响范围 |
 |------|--------|------|----------|
 | M001 | AnimateDiff-Lightning 权重 | 需要锁定具体 checkpoint、分辨率适配和许可证 | 模型转换、算子覆盖 |
-| M002 | SD1.5 QNN 模型包 | 需要与现有 Yedu QNN 后端兼容的 SD1.5 资源 | UNet/VAE 链路 |
+| M002 | SD1.5 QNN 模型包 | 需要与现有 QNN 后端兼容的 SD1.5 资源 | UNet/VAE 链路 |
 | M003 | QAIRT/QNN SDK | 2.39.0.250925 转换器、HTP 工具和文档 | 模型转换与真机运行 |
 | M004 | 目标模型许可证 | motion module、SD1.5、Lightning 权重的分发/使用条款 | 后续能否交付和分发 |
 
