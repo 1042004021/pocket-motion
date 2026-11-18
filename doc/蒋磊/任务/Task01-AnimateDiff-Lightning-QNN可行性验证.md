@@ -46,7 +46,7 @@ AnimateDiff-Lightning QNN 可行性验证
 | M003 | QAIRT/QNN SDK | 已取得 QAIRT 2.39.0.250925，并用 2.39 重新生成 V79 context | 模型转换与真机运行 | 已解决 |
 | M004 | 目标模型许可证 | AnimateDiff-Lightning 为 `creativeml-openrail-m`；SD1.5 各模型许可证需逐包核对 | 后续能否交付和分发 | 部分解决 |
 | M005 | 完整 SD1.5 diffusers UNet | 目前只有预编译 QNN 包，没有可插入 motion module 的 UNet 源图 | 完整视频链路 | 缺失 |
-| M006 | 真机连接 | 本轮未连接手机；Android 测试包已准备，等手机连接 | 真机验收 | 缺失 |
+| M006 | 真机连接 | 手机已连接（`16ffd10d`），3 个 2.39 context 已完成真机加载和执行 | 真机验收 | 已解决 |
 
 ## 3. 技术方案（如有）
 
@@ -70,7 +70,11 @@ AnimateDiff-Lightning QNN 可行性验证
 | `tools/qnn_context_probe.py` | 已新增 | 生成 QNN HTP context 并做 host 数值校验 |
 | `tools/qnn_op_probe.py` | 已新增 | 汇总 QNN 环境、ONNX 算子和 context 报告 |
 | `doc/验证/Task01-QNN算子覆盖与真机记录.md` | 已新增 | 记录环境、命令、结果和阻塞点 |
-| `tools/run_fixed_video.py` | 未新增 | 真机最小推理入口，等 QAIRT 2.39 后再做 |
+| `tools/run_fixed_video.py` | 未新增 | 完整 UNet 导出后再做固定 8 帧最小视频入口 |
+| `tools/build_qnn239_contexts.sh` | 已新增 | QAIRT 2.39 V79 context 构建入口 |
+| `tools/patch_motion_groupnorm.py` | 已新增 | V79 rank-5 GroupNorm 等价改写 |
+| `tools/prepare_android_qnn_kit.sh` | 已新增 | 打包 Android adb 测试包 |
+| `tools/run_qnn_on_phone.sh` | 已新增 | 真机推送、执行和日志回拉 |
 | `models/` | 本地目录 | 模型权重、ONNX、QNN 产物不入 Git |
 
 ## 4. 验收标准
@@ -78,9 +82,9 @@ AnimateDiff-Lightning QNN 可行性验证
 - [x] 输出模型与许可证盘点表
 - [x] 成功导出固定 8 帧、256×256 的 motion module ONNX 图
 - [x] 输出 QNN 算子覆盖报告，明确不支持项（QNN 2.52 预检 + QNN 2.39 V79 context 复验；未发现不支持项）
-- [ ] 真机完成 8 帧输出，核心计算不依赖 CPU/GPU（阻塞：手机未连接）
-- [ ] 记录每段耗时、峰值内存、温度变化（阻塞）
-- [ ] 给出“继续/换模型/停止”的明确结论（当前为有条件继续）
+- [x] 真机完成 motion module 8 帧输出，核心计算走 QNN HTP，未配置 CPU/GPU 回退
+- [x] 记录 3 个模块的真机耗时、峰值 RSS 和温度变化（单次稳态延迟仍待补测）
+- [ ] 给出完整链路的“继续/换模型/停止”结论（motion module 已通过，完整 UNet 未验证）
 
 ## 5. 接口设计（如有）
 
@@ -121,7 +125,8 @@ AnimateDiff-Lightning QNN 可行性验证
 3. 用 `onnxruntime-qnn` 的 QNN EP `enable_htp_prepare_only` 生成 `soc_model=69`、`htp_arch=79` 的 HTP context，做初步算子覆盖。
 4. 用 QAIRT 2.39 的官方转换器和 `qnn-context-binary-generator` 生成手机同版本 V79 context；通过 `patch_motion_groupnorm.py` 把 V79 不接受的 rank-5 GroupNorm 改写为等价 4D 原语。
 5. 3 个模块的 2.39 context 都在 host `qnn-net-run` 上执行，并与 CPU ONNX 对齐；Android adb 测试包已生成。
-6. 完整 SD1.5 UNet 仍未导出；手机端 context 加载也未验证。
+6. 手机已连接，3 个 context 均成功 `createFromBinary` 并执行 8 帧；数值、耗时、峰值 RSS 和温度已记录。
+7. 完整 SD1.5 UNet 仍未导出。
 
 ### 9.2 实际代码改动
 
@@ -135,6 +140,7 @@ AnimateDiff-Lightning QNN 可行性验证
 | 新增 | `tools/qairt/Dockerfile` | 环境 | Ubuntu 22.04 + QAIRT 2.39 转换依赖 |
 | 新增 | `tools/prepare_android_qnn_kit.sh` | 打包 | 生成 adb 真机测试包 |
 | 新增 | `tools/run_qnn_on_phone.sh` | 真机脚本 | 推送 context/input、执行 qnn-net-run |
+| 新增 | `tools/compare_qnn_outputs.py` | `compare` | 真机输出与 CPU ONNX 的 NHWC/NCHW 对比 |
 | 重写 | `tools/qnn_op_probe.py` | `host_qnn_ep_check`、`read_context_report` | 汇总 QNN 环境、ONNX 算子和 context 报告 |
 | 新增 | `doc/验证/Task01-QNN算子覆盖与真机记录.md` | 全文 | 记录结果、风险和下一步 |
 | 更新 | `tools/README.md`、`README.md`、`doc/项目说明.md`、`doc/蒋磊/进度/进度.md` | 状态/工具说明 | 同步当前进展 |
@@ -148,7 +154,7 @@ AnimateDiff-Lightning QNN 可行性验证
 | 外部依赖 | `onnxruntime-qnn==2.8.0`（QNN 2.52） | 仅用于 host 侧初步算子/context 验证 |
 | 外部依赖 | QAIRT 2.39.0.250925 | 已取得；用于生成手机同版本 V79 context |
 | 外部依赖 | SD1.5 diffusers UNet 权重 | **仍需准备**；用于导出完整 UNet + motion module |
-| 外部依赖 | 目标手机 | 本轮未连接，真机验证待执行 |
+| 外部依赖 | 目标手机 | 已连接（`16ffd10d`），motion module 真机验证通过 |
 
 ### 9.4 验证记录与已知风险
 
@@ -159,10 +165,12 @@ AnimateDiff-Lightning QNN 可行性验证
 | QNN 2.52 context 生成 | 通过 | 3 个模块均生成 EPContext，无 CPU 子图 |
 | QNN 2.39 V79 context 生成 | 通过 | 3 个模块均生成官方 context，大小约 15.1/21.7/70.8 MiB |
 | QNN host 数值校验 | 通过 | 最大绝对误差 ≤ 7.43e-03，相关系数 ≥ 0.9999995 |
-| Android 测试包 | 已准备 | `dist/qnn239-android/`，adb 推送脚本可用 |
-| 真机 NPU 推理 | 未执行 | 手机未连接；context 尚未在手机 `createFromBinary` |
+| Android 测试包 | 已使用 | `dist/qnn239-android/`，已在手机执行并回拉输出 |
+| 真机 NPU 推理 | 通过 | 3 个 2.39 context 均在 SM8750 手机上 `createFromBinary` 并执行 8 帧 |
+| 真机数值一致性 | 通过 | 最大绝对误差 ≤ 6.62e-03，相关系数 ≥ 0.9999995 |
+| 真机耗时/峰值 RSS/温度 | 已记录 | 3 次连续推理 wall time 约 1021.7/585.7/516.2 ms；VmHWM 31.3/32.8/83.3 MB；温度见验证记录 |
 | 完整 SD1.5 + AnimateDiff | 未执行 | 只有 motion module，没有完整 UNetMotionModel |
-| 已知风险 1 | 中 | 2.39 V79 context 尚未在手机运行时加载 |
+| 已知风险 1 | 低 | 手机端已加载成功；单次稳态延迟仍待 profiling 补测 |
 | 已知风险 2 | 高 | 完整 UNet 的算子覆盖、内存和耗时未知 |
 | 已知风险 3 | 中 | host 的 QNN 设备类型显示为 CPU，host 耗时不能代表手机 NPU |
 
@@ -171,4 +179,5 @@ AnimateDiff-Lightning QNN 可行性验证
 | 时间 | 修改内容 | 修改原因 | 确认人 |
 |------|----------|----------|--------|
 | 2026-11-17 | 创建 AnimateDiff QNN 可行性任务 | 用户确认 NPU-only 路线 | 用户 |
-| 2026-11-17 | 完成 motion module ONNX 导出、QNN 2.52 预检、QAIRT 2.39 V79 context 和 Android adb 测试包；记录真机/完整 UNet 阻塞 | 用户要求持续开发，先做算子覆盖和真机测试准备 | 用户 |
+| 2026-11-17 | 完成 motion module ONNX 导出、QNN 2.52 预检、QAIRT 2.39 V79 context 和 Android adb 测试包 | 用户要求持续开发，先做算子覆盖和真机测试准备 | 用户 |
+| 2026-11-18 | 手机连接后完成 3 个 context 的 `createFromBinary`、8 帧执行、数值对比、耗时/峰值 RSS/温度记录 | 手机已连接，完成真机验收 | 用户 |

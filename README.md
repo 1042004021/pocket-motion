@@ -30,12 +30,13 @@ Task01 进行中，已完成：
 - 3 个代表性 motion module 的固定 8 帧 ONNX 导出
 - QNN 2.52 预检和 QAIRT 2.39 V79 context 生成
 - 3 个 2.39 context 在 host `qnn-net-run` 上与 CPU ONNX 对齐
+- 手机 `16ffd10d` 上 3 个 context 全部加载并执行，数值与 CPU 对齐
 - Android adb 测试包：`dist/qnn239-android/`
 
 仍阻塞：
 
-- 手机当前未连接，尚未在手机 `createFromBinary` 加载 context
 - 完整 SD1.5 + AnimateDiff UNet 尚未导出和编译
+- 单次稳态延迟尚未单独 profiling
 
 详细记录见 [Task01 验证记录](doc/验证/Task01-QNN算子覆盖与真机记录.md)。
 
@@ -56,6 +57,10 @@ tools/
   export_motion_onnx.py
   qnn_context_probe.py
   qnn_op_probe.py
+  build_qnn239_contexts.sh
+  prepare_android_qnn_kit.sh
+  run_qnn_on_phone.sh
+  compare_qnn_outputs.py
   README.md
 ```
 
@@ -78,6 +83,10 @@ python3 tools/device_probe.py
 docker build -t pocket-motion-qairt:2.39 -f tools/qairt/Dockerfile tools/qairt
 bash tools/build_qnn239_contexts.sh
 bash tools/prepare_android_qnn_kit.sh
+
+# 手机连接后
+bash dist/qnn239-android/run_on_phone.sh
+.venv/bin/python tools/compare_qnn_outputs.py
 
 # 汇总 QNN/算子报告
 .venv/bin/python tools/qnn_op_probe.py

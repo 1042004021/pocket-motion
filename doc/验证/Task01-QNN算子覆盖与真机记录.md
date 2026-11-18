@@ -1,7 +1,7 @@
 # Task01 QNN 算子覆盖与真机记录
 
-> 记录时间：2026-11-17
-> 结论状态：**host 侧算子验证通过，真机 NPU 验证未完成**
+> 记录时间：2026-11-18
+> 结论状态：**motion module 真机 NPU 验证通过；完整 SD1.5 UNet 未完成**
 
 ## 1. 结论摘要
 
@@ -10,11 +10,11 @@
 | AnimateDiff-Lightning motion module 固定 shape ONNX | 已导出 3 个代表性模块，覆盖 320/640/1280 通道 |
 | QNN 算子覆盖 | 2.52 与 2.39 均能在 host 编译；2.39 V79 context 已生成 |
 | QNN 数值一致性 | 3 个模块 QNN 输出与 CPU ONNX 输出 `allclose(atol=2e-2, rtol=2e-2)` |
-| 真机 NPU 运行 | **未完成**：手机当前未连接；Android 测试包已准备好 |
-| 手机 QNN 运行时兼容性 | **待真机验证**：已用 QNN 2.39 重新生成 context，与手机库版本一致 |
+| 真机 NPU 运行 | **通过**：3 个 2.39 context 均在 SM8750 手机上加载并执行 8 帧 |
+| 手机 QNN 运行时兼容性 | **通过**：手机 `createFromBinary` 接受 2.39 context |
 | 完整 SD1.5 + AnimateDiff UNet | **未导出**：目前只验证了 motion module，不是整条视频链路 |
 
-**当前判断**：motion module 的算子层面没有发现阻塞，QNN 2.39 V79 context 也已在 host 加载验证；下一步只需手机端确认 context 可加载，然后进入完整 UNet。还不能宣称“SD1.5 + AnimateDiff-Lightning 已在 NPU 上跑通”。
+**当前判断**：motion module 的算子覆盖、QNN 2.39 context、手机 NPU 执行和数值一致性都已验证通过。下一步是完整 SD1.5 + AnimateDiff UNet；还不能宣称“完整视频生成已在 NPU 上跑通”。
 
 ## 2. 环境
 
@@ -154,28 +154,60 @@ QNN 2.39 V79 context 结果（host `qnn-net-run`，输入/输出按 QNN 的 NHWC
 | 640 / 16×16 | 21.7 MiB | 7.43e-03 | 7.19e-04 | 0.99999966 | 是 |
 | 1280 / 8×8 | 70.8 MiB | 6.50e-03 | 9.79e-04 | 0.99999955 | 是 |
 
-这证明 QNN 2.39 的 V79 context 可以在同版本 host HTP 后端上加载并执行；**仍然不是手机实测**。
+这证明 QNN 2.39 的 V79 context 可以在同版本 host HTP 后端上加载并执行；这只是 host 验证，手机实测见 6.2。
 
-### 6.2 Android 测试包
+### 6.2 手机真机验证
 
-已生成：
+手机已连接并完成验证：
 
-```text
-dist/qnn239-android/
-├── qnn-net-run                 # QAIRT 2.39 aarch64-android
-├── lib/                        # libQnnHtp.so、V79 stub、QnnSystem
-├── skel/                       # V79 skel / DSP 库
-├── models/                     # 3 个 context + NHWC input raw
-└── run_on_phone.sh             # adb 推送 + 执行
-```
+| 项目 | 值 |
+|------|-----|
+| 设备 | Xiaomi `24129PN74C` |
+| 序列号 | `16ffd10d` |
+| SoC | SM8750 / V79 |
+| Android | 16 / SDK 36 |
 
-明天手机连上后：
+测试包推送到 `/data/local/tmp/pocket-motion-qnn`，用 QAIRT 2.39 的 arm64 `qnn-net-run` 加载 context。三个 context 均成功 `createFromBinary`，`qnn-net-run` 返回 0，输出已拉回本地。
+
+#### 6.2.1 数值一致性
+
+输入/输出按 QNN 的 NHWC 布局转换后与 CPU ONNX 对齐：
+
+| 模块 | max_abs_diff | mean_abs_diff | 相关系数 | allclose |
+|------|--------------|---------------|----------|----------|
+| 320 / 32×32 | 4.82e-03 | 4.42e-04 | 0.99999984 | 是 |
+| 640 / 16×16 | 6.34e-03 | 6.77e-04 | 0.99999970 | 是 |
+| 1280 / 8×8 | 6.62e-03 | 9.66e-04 | 0.99999957 | 是 |
+
+#### 6.2.2 耗时、峰值内存与温度
+
+耗时是**每个模块一个进程、连续 3 次推理的 wall time**，包含进程启动和 context 加载，不是单次稳态延迟：
+
+| 模块 | 3 次推理 wall time | 进程峰值 RSS (`VmHWM`) |
+|------|--------------------|-------------------------|
+| 320 / 32×32 | 1021.7 ms | 31.3 MB |
+| 640 / 16×16 | 585.7 ms | 32.8 MB |
+| 1280 / 8×8 | 516.2 ms | 83.3 MB |
+
+> 320 是第一个执行，包含额外冷启动开销；不能直接用这三组数比较三个模块的理论算力。单次稳态延迟还需后续用 profiling 或重复多轮单独测。
+
+温度采样（NSP HVX / NSP HMX / DDR，°C）：
+
+| 模块 | 执行前 | 执行后 |
+|------|--------|--------|
+| 320 | 33.4 / 32.6 / 33.8 | 34.2 / 34.2 / 35.3 |
+| 640 | 34.2 / 34.2 / 35.3 | 34.9 / 34.9 / 36.1 |
+| 1280 | 34.9 / 34.9 / 36.1 | 35.3 / 35.3 / 35.7 |
+
+峰值 RSS 用执行中的 `/proc/<pid>/status` `VmHWM` 采样；`VmSize` 会包含 QNN 的大块虚拟地址映射，不能当作实际物理内存。没有测到 CPU/GPU 回退：测试命令只加载了 `libQnnHtp.so`，未配置 CPU/GPU 后端。
+
+测试命令：
 
 ```bash
 bash dist/qnn239-android/run_on_phone.sh
 ```
 
-脚本会推送 kit 到 `/data/local/tmp/pocket-motion-qnn`，逐个加载 context、执行 8 帧输入，并把输出拉回 `dist/qnn239-android/results/`。
+脚本会推送 kit、逐个加载 context、执行 8 帧输入，并把输出和日志拉回 `dist/qnn239-android/results/`。
 
 ## 7. 剩余风险与阻塞
 
@@ -187,7 +219,7 @@ bash dist/qnn239-android/run_on_phone.sh
 | host `qnn-net-run` / HTP backend | 2.39.0.250925 |
 | 手机现有 QNN 库 | `AISW_VERSION 2.39.0` / `v2.39.0.250925215840_163802` |
 
-2.39 context 已在 host HTP 后端加载并执行通过；剩余风险是**手机端 `createFromBinary` 是否接受该 context**，必须真机确认，不能仅凭 host 推断。
+2.39 context 已在手机 `qnn-net-run` 上成功 `createFromBinary` 并执行，版本对齐风险关闭。
 
 ### 7.2 只有 motion module，没有完整 UNet
 
@@ -203,14 +235,16 @@ bash dist/qnn239-android/run_on_phone.sh
 
 ### 7.3 真机状态
 
-本轮没有连接手机，也没有运行真机推理；因此没有耗时、峰值内存、温度数据。Android 测试包已准备好，等手机连接后执行。
+已完成：3 个 2.39 context 在手机上加载并执行，数值与 CPU ONNX 对齐；耗时、峰值 RSS 和温度见 6.2。
+
+仍未测：单次稳态延迟、完整 UNet 的 context 大小/加载时间/峰值内存，以及完整 4～6 步视频链路的总耗时。
 
 ## 8. 下一步
 
-1. 连接手机并运行 `dist/qnn239-android/run_on_phone.sh`，确认 3 个 context 都能加载并执行。
-2. 记录手机端初始化、单次推理、峰值内存和温度。
-3. 下载 SD1.5 diffusers 权重，导出完整 `UNetMotionModel`，重复同样的 QNN 编译和真机验证。
-4. 只有完整 UNet 的算子覆盖、真机耗时和内存都可接受，才进入 Android UI。
+1. 下载 SD1.5 diffusers 权重，导出完整 `UNetMotionModel`，复用 2.39 转换链路。
+2. 先验证完整 UNet 的算子覆盖、context 大小和手机能否加载。
+3. 接入 CLIP/VAE 和固定 4～6 步去噪，做 256×256、8 帧的最小视频闭环。
+4. 完整链路稳定后，再做 Android UI/APK；当前 adb 测试包保留作为回归工具。
 
 ## 9. 证据文件
 
@@ -230,6 +264,8 @@ models/qnn239/*/io/out/Result_0/out.raw # host QNN output
 models/qnn_op_report.json
 models/inventory.json
 dist/qnn239-android/                     # Android adb test kit
+dist/qnn239-android/results/*/Result_0/out.raw  # 手机输出
+dist/qnn239-android/results/*/execution_metadata.yaml
 ```
 
 复现命令：
@@ -248,4 +284,5 @@ bash tools/build_qnn239_contexts.sh
 # Android test kit
 bash tools/prepare_android_qnn_kit.sh
 bash dist/qnn239-android/run_on_phone.sh
+.venv/bin/python tools/compare_qnn_outputs.py
 ```

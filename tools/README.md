@@ -123,6 +123,16 @@ bash dist/qnn239-android/run_on_phone.sh
 
 脚本会推送并逐个执行 context，输出拉回 `dist/qnn239-android/results/`。
 
+### compare_qnn_outputs.py
+
+真机跑完后对比 QNN 输出和 CPU ONNX：
+
+```bash
+.venv/bin/python tools/compare_qnn_outputs.py
+```
+
+脚本会自动做 NHWC→NCHW 转换，输出 3 个模块的 max/mean 误差、相关系数和 `allclose` 结果。
+
 ## 退出码
 
 - `0`：host 验证完成
